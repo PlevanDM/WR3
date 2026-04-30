@@ -1,0 +1,47 @@
+#!/usr/bin/env powershell
+<#
+.SYNOPSIS
+    Launch Warranty Bot in a terminal for local Telegram testing.
+
+.DESCRIPTION
+    Starts the bot process and displays output. Press Ctrl+C to stop.
+    The bot will connect to RemOnline and listen to Telegram.
+
+.EXAMPLE
+    .\run_bot.ps1
+#>
+
+param([switch]$NoCheck)
+
+Write-Host "🚀 Warranty 3.0 Bot Launcher" -ForegroundColor Cyan
+Write-Host "=" * 70
+
+# Check if .env exists
+if (-not (Test-Path ".env")) {
+    Write-Host "❌ .env not found" -ForegroundColor Red
+    Write-Host "   Copy .env.example to .env and fill in:"
+    Write-Host "   - BOT_TOKEN"
+    Write-Host "   - ADMIN_TG_IDS"
+    Write-Host "   - REMONLINE_API_KEY"
+    exit 1
+}
+
+# Optional: quick health check
+if (-not $NoCheck) {
+    Write-Host "`n🔍 Health check..." -ForegroundColor Yellow
+    & .\.venv\Scripts\python.exe scripts\research.py --quick 2>&1 | tail -20
+}
+
+# Start bot
+Write-Host "`n▶️ Starting bot process..." -ForegroundColor Green
+Write-Host "   Listening to @warranty3_bot on Telegram..."
+Write-Host "   Press Ctrl+C to stop" -ForegroundColor DarkGray
+Write-Host ""
+
+try {
+    & .\.venv\Scripts\python.exe -m app.main 2>&1
+}
+catch {
+    Write-Host "❌ Error starting bot: $_" -ForegroundColor Red
+    exit 1
+}

@@ -1,0 +1,16 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+.vscode/
+*.log
+postgres_data/
+redis_data/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+attic/
+data/*.db
+data/*.log
