@@ -303,7 +303,7 @@ def main(args):
 
     # Run only essential test
     print("\n1️⃣ UI WALK")
-    engine.run_probe("ui_walk", [".venv\\Scripts\\python.exe", "-m", "scripts.ui_walk"], timeout=120)
+    engine.run_probe("ui_walk", ["python", "-m", "scripts.ui_walk"], timeout=120)
 
     # Deep checks
     det_ok, det_total = engine.run_detective_checks()
