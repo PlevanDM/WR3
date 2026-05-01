@@ -18,6 +18,9 @@ router = Router(name="manager")
 
 
 def _allowed(user: User | None) -> bool:
+    return bool(user and user.is_active and user.role in (Role.manager, Role.admin, Role.owner))
+
+def _allowed_to_write(user: User | None) -> bool:
     return bool(user and user.is_active and user.role in (Role.manager, Role.admin))
 
 
@@ -138,8 +141,8 @@ async def list_actions(cb: CallbackQuery, user: User | None) -> None:
 
 @router.callback_query(F.data.startswith("mgr:req:rejc:cancel:"))
 async def cancel_reject_comment(cb: CallbackQuery, user: User | None, state: FSMContext) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     await state.clear()
     try: await cb.message.edit_reply_markup(reply_markup=None)
     except Exception: pass
@@ -149,8 +152,8 @@ async def cancel_reject_comment(cb: CallbackQuery, user: User | None, state: FSM
 @router.callback_query(F.data.startswith("mgr:req:rejr:"))
 async def reject_with_preset(cb: CallbackQuery, user: User | None, bot: Bot, state: FSMContext) -> None:
     """Reject request using a preset reason code."""
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     _, _, _, rid_s, code = cb.data.split(":")
     rid = int(rid_s)
     note = next((full for c, _lbl, full in REJECT_REASONS if c == code), None)
@@ -166,8 +169,8 @@ async def reject_with_preset(cb: CallbackQuery, user: User | None, bot: Bot, sta
 @router.callback_query(F.data.startswith("mgr:req:rejtxt:"))
 async def reject_with_custom_text(cb: CallbackQuery, user: User | None, state: FSMContext) -> None:
     """Switch to FSM and wait for free-text reject comment."""
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     rid = int(cb.data.split(":")[3])
     await state.set_state(RejectFSM.waiting_comment)
     await state.update_data(rid=rid)
@@ -188,8 +191,8 @@ async def reject_with_custom_text(cb: CallbackQuery, user: User | None, state: F
 @router.callback_query(F.data.startswith("mgr:req:rejc:"))
 async def ask_reject_comment(cb: CallbackQuery, user: User | None, state: FSMContext) -> None:
     """Show preset reject reasons; user can still choose «Свой текст»."""
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     rid = int(cb.data.split(":")[3])
     await state.clear()
     prompt = (
@@ -224,8 +227,8 @@ async def on_reject_comment(msg: Message, user: User | None, state: FSMContext, 
 @router.callback_query(F.data.startswith("mgr:req:"))
 async def on_change(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
     """Apply 'in progress' or 'done' to a request (reject is handled separately via presets)."""
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     _, _, action, rid_s = cb.data.split(":")
     rid = int(rid_s)
     status_map = {"ip": RequestStatus.in_progress, "done": RequestStatus.done}

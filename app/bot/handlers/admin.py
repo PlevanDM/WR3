@@ -89,6 +89,7 @@ async def cb_asrole_menu(cb: CallbackQuery, user: User | None) -> None:
     b = InlineKeyboardBuilder()
     for role, label in [
         (Role.admin, "🛡 Админ"),
+        (Role.owner, "👑 Владелец"),
         (Role.reception, "🛎 Приёмка"),
         (Role.engineer, "🛠 Инженер"),
         (Role.manager, "📋 Менеджер"),
@@ -160,7 +161,7 @@ def _user_row_kb(u: User) -> InlineKeyboardMarkup:
     from aiogram.utils.keyboard import InlineKeyboardBuilder
     b = InlineKeyboardBuilder()
     for role, label in [(Role.reception, "🛎"), (Role.engineer, "🛠"),
-                        (Role.manager, "📋"), (Role.admin, "🛡")]:
+                        (Role.manager, "📋"), (Role.admin, "🛡"), (Role.owner, "👑")]:
         if u.role != role:
             b.button(text=label, callback_data=f"adm:setrole:{u.tg_id}:{role.value}")
     if u.is_active:

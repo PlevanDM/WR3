@@ -22,6 +22,7 @@ class Role(str, enum.Enum):
     reception = "reception"
     engineer = "engineer"
     manager = "manager"
+    owner = "owner"
 
 
 class PhotoKind(str, enum.Enum):

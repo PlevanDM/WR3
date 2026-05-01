@@ -22,6 +22,9 @@ class PhotoFSM(StatesGroup):
 
 
 def _allowed(user: User | None) -> bool:
+    return bool(user and user.is_active and user.role in (Role.reception, Role.admin, Role.owner))
+
+def _allowed_to_write(user: User | None) -> bool:
     return bool(user and user.is_active and user.role in (Role.reception, Role.admin))
 
 
@@ -75,8 +78,8 @@ async def cb_stale_page(cb: CallbackQuery, user: User | None) -> None:
 
 @router.callback_query(F.data.startswith("rcp:photo:"))
 async def start_photos(cb: CallbackQuery, user: User | None, state: FSMContext) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     order_id = int(cb.data.split(":")[2])
     await state.set_state(PhotoFSM.uploading)
     await state.update_data(order_id=order_id, photos=[], documents=[])
@@ -150,8 +153,8 @@ async def on_cancel(cb: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(PhotoFSM.uploading, F.data == "rcp:done")
 async def on_done(cb: CallbackQuery, user: User | None, state: FSMContext, bot: Bot) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒"); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     data = await state.get_data()
     await state.clear()
     order_id = int(data["order_id"])

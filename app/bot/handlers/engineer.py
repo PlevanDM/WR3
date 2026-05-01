@@ -32,6 +32,9 @@ class RequestFSM(StatesGroup):
 
 
 def _allowed(user: User | None) -> bool:
+    return bool(user and user.is_active and user.role in (Role.engineer, Role.manager, Role.admin, Role.owner))
+
+def _allowed_to_write(user: User | None) -> bool:
     return bool(user and user.is_active and user.role in (Role.engineer, Role.manager, Role.admin))
 
 
@@ -99,8 +102,8 @@ async def cb_queue_order(cb: CallbackQuery, user: User | None, bot: Bot) -> None
 
 @router.callback_query(F.data.startswith("dq:tk:"))
 async def cb_queue_take(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     _, _, oid_s, page_s = cb.data.split(":")
     oid = int(oid_s)
     async with session_scope() as s:
@@ -131,8 +134,8 @@ async def cb_queue_take(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
 
 @router.callback_query(F.data.startswith("dq:un:"))
 async def cb_queue_untake(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     _, _, oid_s, page_s = cb.data.split(":")
     oid = int(oid_s)
     async with session_scope() as s:
@@ -369,8 +372,8 @@ async def _start_request_for_number(msg: Message, raw: str, state: FSMContext) -
 
 @router.callback_query(F.data.startswith("eng:take:"))
 async def on_take(cb: CallbackQuery, user: User | None) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     oid = int(cb.data.split(":")[2])
     from sqlalchemy import select
     from app.db.models import User as UM
@@ -398,8 +401,8 @@ async def on_take(cb: CallbackQuery, user: User | None) -> None:
 
 @router.callback_query(F.data.startswith("eng:untake:"))
 async def on_untake(cb: CallbackQuery, user: User | None) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     oid = int(cb.data.split(":")[2])
     async with session_scope() as s:
         result = await repo.release_order(s, oid, user.id)
@@ -436,8 +439,8 @@ async def on_request_menu(cb: CallbackQuery, user: User | None, state: FSMContex
 @router.callback_query(F.data.startswith("eng:paid:assign:"))
 async def on_paid_assign_pick(cb: CallbackQuery, user: User | None, state: FSMContext) -> None:
     """Engineer chooses which paid engineer to forward the order to."""
-    if not _allowed(user):
-        await cb.answer("🔒"); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     oid = int(cb.data.split(":")[3])
     async with session_scope() as s:
         order = await repo.get_order(s, oid)
@@ -471,8 +474,8 @@ async def on_paid_assign_pick(cb: CallbackQuery, user: User | None, state: FSMCo
 
 @router.callback_query(F.data.startswith("eng:paid:to:"))
 async def on_paid_assign_apply(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒"); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     parts = cb.data.split(":")
     eid = int(parts[3]); oid = int(parts[4])
     from sqlalchemy import select
@@ -562,8 +565,8 @@ def _auto_payload(order, rtype: RequestType) -> str:
 
 @router.callback_query(F.data.startswith("eng:req:"))
 async def on_request_start(cb: CallbackQuery, user: User | None, state: FSMContext, bot: Bot) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒 Нет доступа", show_alert=True); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     parts = cb.data.split(":")
     # eng:req:customok:<oid> — подтверждение «Другое» без текста
     if len(parts) >= 4 and parts[2] == "customok":
@@ -707,8 +710,8 @@ async def cb_myreq_filter(cb: CallbackQuery, user: User | None) -> None:
 
 @router.callback_query(F.data.startswith("eng:reqown:cancel:"))
 async def cb_own_cancel(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
-    if not _allowed(user):
-        await cb.answer("🔒"); return
+    if not _allowed_to_write(user):
+        await cb.answer("🔒 У вас режим только для чтения", show_alert=True); return
     rid = int(cb.data.split(":")[3])
     async with session_scope() as s:
         r = await repo.get_request(s, rid)

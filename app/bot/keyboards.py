@@ -50,6 +50,11 @@ def main_menu(role: Role) -> ReplyKeyboardMarkup:
         b.add(KeyboardButton(text=BTN_FIND_ORDER), KeyboardButton(text=BTN_STATS))
         rows = [2, 2, 2]
 
+    elif role == Role.owner:
+        b.add(KeyboardButton(text=BTN_QUEUE), KeyboardButton(text=BTN_STATS))
+        b.add(KeyboardButton(text=BTN_FIND_ORDER))
+        rows = [2, 1]
+
     b.adjust(*rows)
     return b.as_markup(resize_keyboard=True, is_persistent=True)
 
@@ -280,10 +285,11 @@ def invite_role_pick_kb(mode: str) -> InlineKeyboardMarkup:
         ("engineer", "🛠 Инженер"),
         ("manager", "📋 Менеджер"),
         ("admin", "🛡 Админ"),
+        ("owner", "👑 Владелец"),
     ]:
         b.button(text=label, callback_data=f"adm:inv:role:{mode}:{role}")
     b.button(text="⬅️ Назад", callback_data="adm:invite")
-    b.adjust(2, 2, 1)
+    b.adjust(2, 3)
     return b.as_markup()
 
 
@@ -294,7 +300,8 @@ def role_picker_kb() -> InlineKeyboardMarkup:
     b.button(text="🛠 Инженер",  callback_data="adm:setrole")
     b.button(text="📋 Менеджер", callback_data="adm:setrole")
     b.button(text="🛡 Админ",    callback_data="adm:setrole")
-    b.adjust(2, 2)
+    b.button(text="👑 Владелец",  callback_data="adm:setrole")
+    b.adjust(2, 3)
     return b.as_markup()
 
 
