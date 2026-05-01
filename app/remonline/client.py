@@ -53,6 +53,8 @@ class RemOnlineClient:
         await self.close()
 
     def _headers(self) -> dict[str, str]:
+        if not self._api_key:
+            return {}
         return {"Authorization": f"Bearer {self._api_key}"}
 
     async def _request(self, method: str, path: str, *, params: dict | None = None,
