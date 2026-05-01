@@ -18,12 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 
-def _configure_console_output() -> None:
-    """Avoid UnicodeEncodeError on Windows consoles with legacy encodings."""
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from scripts._console import configure_console_output
 
 
 # --- stub side-effecting integrations BEFORE bot imports -----------------
@@ -707,7 +702,7 @@ class Walker:
 
 # ============== main ==============
 async def main() -> int:
-    _configure_console_output()
+    configure_console_output()
     fix = await _fixture()
     w = Walker()
     try:

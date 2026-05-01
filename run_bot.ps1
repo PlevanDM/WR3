@@ -26,22 +26,29 @@ if (-not (Test-Path ".env")) {
     exit 1
 }
 
+# Use system python by default if .venv not explicitly available
+$python_exe = "python"
+if (Test-Path ".\.venv\Scripts\python.exe") {
+    $python_exe = ".\.venv\Scripts\python.exe"
+}
+
 # Optional: quick health check
 if (-not $NoCheck) {
-    Write-Host "`n🔍 Health check..." -ForegroundColor Yellow
-    & .\.venv\Scripts\python.exe scripts\research.py --quick 2>&1 | tail -20
+    Write-Host "`n[ Health check... ]" -ForegroundColor Yellow
+    $output = & $python_exe scripts\research.py --quick 2>&1
+    $output | Select-Object -Last 20
 }
 
 # Start bot
-Write-Host "`n▶️ Starting bot process..." -ForegroundColor Green
+Write-Host "`n[ Starting bot process... ]" -ForegroundColor Green
 Write-Host "   Listening to @warranty3_bot on Telegram..."
 Write-Host "   Press Ctrl+C to stop" -ForegroundColor DarkGray
 Write-Host ""
 
 try {
-    & .\.venv\Scripts\python.exe -m app.main 2>&1
+    & $python_exe -m app.main 2>&1
 }
 catch {
-    Write-Host "❌ Error starting bot: $_" -ForegroundColor Red
+    Write-Host "Error starting bot: $_" -ForegroundColor Red
     exit 1
 }

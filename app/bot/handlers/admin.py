@@ -111,27 +111,48 @@ async def cb_asrole_menu(cb: CallbackQuery, user: User | None) -> None:
 
 
 @router.callback_query(F.data.startswith("adm:asrole:set:"))
-async def cb_asrole_set(cb: CallbackQuery, user: User | None) -> None:
+async def cb_asrole_set(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
     if not _is_admin(user, cb.from_user.id):
         await cb.answer("🔒 Нет доступа", show_alert=True); return
     role = Role(cb.data.rsplit(":", 1)[1])
     async with session_scope() as s:
         await repo.set_role_override(s, cb.from_user.id, role)
     await cb.answer(f"✅ Режим: {ROLE_LABELS[role.value]}")
+
+    from app.bot.commands import apply_commands_for_user
+    from app.bot.keyboards import main_menu
+    await apply_commands_for_user(bot, cb.from_user.id, role)
+
+    try: await cb.message.delete()
+    except Exception: pass
+
     await cb.message.answer(
-        f"Роль переключена на <b>{ROLE_LABELS[role.value]}</b>.\n"
-        "Нажми /start чтобы обновить главное меню."
+        f"🧪 Роль переключена на <b>{ROLE_LABELS[role.value]}</b>.\n"
+        "Меню кнопок и команд обновлено.",
+        reply_markup=main_menu(role)
     )
 
 
 @router.callback_query(F.data == "adm:asrole:reset")
-async def cb_asrole_reset(cb: CallbackQuery, user: User | None) -> None:
+async def cb_asrole_reset(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
     if not _is_admin(user, cb.from_user.id):
         await cb.answer("🔒 Нет доступа", show_alert=True); return
     async with session_scope() as s:
         await repo.set_role_override(s, cb.from_user.id, None)
     await cb.answer("✅ Сброшено")
-    await cb.message.answer("Режим теста сброшен. Нажми /start для меню админа.")
+
+    from app.bot.commands import apply_commands_for_user
+    from app.bot.keyboards import main_menu
+    real_role = getattr(user, "real_role", user.role if user else Role.admin)
+    await apply_commands_for_user(bot, cb.from_user.id, real_role)
+
+    try: await cb.message.delete()
+    except Exception: pass
+
+    await cb.message.answer(
+        "Режим теста сброшен. Меню админа возвращено.",
+        reply_markup=main_menu(real_role)
+    )
 
 
 # ---------- users ----------
@@ -216,6 +237,7 @@ async def cb_set_role(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
                 if len([a for a in admins if a.is_active]) <= 1:
                     await cb.answer("Это последний активный админ.", show_alert=True); return
             await repo.set_user_active(s, tg_id_int, False)
+            await repo.set_role_override(s, tg_id_int, None)
             if target:
                 released = await repo.release_orders_of_user(s, target.id)
     else:
@@ -231,6 +253,8 @@ async def cb_set_role(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
         async with session_scope() as s:
             target_before = await repo.get_user_by_tg(s, tg_id_int)
             await repo.upsert_user(s, tg_id_int, role)
+            if role != Role.admin:
+                await repo.set_role_override(s, tg_id_int, None)
             if target_before and target_before.role == Role.engineer and role != Role.engineer:
                 released = await repo.release_orders_of_user(s, target_before.id)
         try:
@@ -1266,18 +1290,3 @@ async def _safe_deep_link(bot: Bot, order_id: int) -> str:
         return await order_deep_link(bot, order_id)
     except Exception:
         return ""
-    # refresh current DM widget in place if we're inside one
-    from app.bot import views
-    base = (getattr(cb.message, "html_text", None) or cb.message.text or "")
-    try:
-        if base.startswith("📋 <b>Очередь → #"):
-            out = await views.render_queue_order_view(user, oid, 0, bot)
-            if out:
-                text, kb = out
-                await cb.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
-        elif base.startswith("📋 <b>Очередь</b>"):
-            text, kb = await views.render_queue_view(user, page=0)
-            await cb.message.edit_text(text, reply_markup=kb)
-    except Exception:
-        pass
-    await cb.answer("🔝 Позиция обновлена")

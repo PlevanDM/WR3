@@ -14,7 +14,11 @@ async def _fetch_public_url(order_id: int) -> Optional[str]:
         async with RemOnlineClient() as ro:
             r = await ro.order_public_url(order_id)
     except RemOnlineError as e:
-        log.warning("ro_public_url_failed", order_id=order_id, error=str(e))
+        err_str = str(e)
+        if "403:" in err_str or "404:" in err_str:
+            log.debug("ro_public_url_failed", order_id=order_id, error=err_str)
+        else:
+            log.warning("ro_public_url_failed", order_id=order_id, error=err_str)
         return None
     except Exception:
         log.exception("ro_public_url_unexpected", order_id=order_id)

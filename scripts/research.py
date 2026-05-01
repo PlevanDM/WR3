@@ -24,12 +24,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
-def _configure_console_output() -> None:
-    """Avoid UnicodeEncodeError on Windows consoles with legacy encodings."""
-    if hasattr(sys.stdout, "reconfigure"):
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    if hasattr(sys.stderr, "reconfigure"):
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+from scripts._console import configure_console_output
 
 
 @dataclass
@@ -295,7 +290,7 @@ class ResearchEngine:
 
 
 def main(args):
-    _configure_console_output()
+    configure_console_output()
     engine = ResearchEngine()
 
     print("🔬 AUTO-RESEARCH (Production Health Check)")
