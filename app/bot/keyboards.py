@@ -51,9 +51,10 @@ def main_menu(role: Role) -> ReplyKeyboardMarkup:
         rows = [2, 2, 2]
 
     elif role == Role.owner:
-        b.add(KeyboardButton(text=BTN_QUEUE), KeyboardButton(text=BTN_STATS))
-        b.add(KeyboardButton(text=BTN_FIND_ORDER))
-        rows = [2, 1]
+        b.add(KeyboardButton(text=BTN_INBOX), KeyboardButton(text=BTN_QUEUE))
+        b.add(KeyboardButton(text=BTN_ASBIS), KeyboardButton(text=BTN_IT4))
+        b.add(KeyboardButton(text=BTN_FIND_ORDER), KeyboardButton(text=BTN_STATS))
+        rows = [2, 2, 2]
 
     b.adjust(*rows)
     return b.as_markup(resize_keyboard=True, is_persistent=True)
@@ -368,9 +369,10 @@ def role_pick_kb(tg_id: int) -> InlineKeyboardMarkup:
         (Role.reception, "🛎 Приёмка"),
         (Role.engineer, "🛠 Инженер"),
         (Role.manager, "📋 Менеджер"),
+        (Role.owner, "👑 Владелец"),
         (Role.admin, "🛡 Админ"),
     ]:
         b.button(text=label, callback_data=f"adm:role:{tg_id}:{role.value}")
     b.button(text="🚫 Отклонить", callback_data=f"adm:role:{tg_id}:deny")
-    b.adjust(2, 2, 1)
+    b.adjust(2, 2, 2)
     return b.as_markup()

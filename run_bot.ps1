@@ -13,8 +13,8 @@
 
 param([switch]$NoCheck)
 
-Write-Host "🚀 Warranty 3.0 Bot Launcher" -ForegroundColor Cyan
-Write-Host "=" * 70
+Write-Host "Warranty 3.0 Bot Launcher" -ForegroundColor Cyan
+Write-Host ('=' * 70)
 
 # Check if .env exists
 if (-not (Test-Path ".env")) {
@@ -32,11 +32,16 @@ if (Test-Path ".\.venv\Scripts\python.exe") {
     $python_exe = ".\.venv\Scripts\python.exe"
 }
 
-# Optional: quick health check
+# Optional: quick health check (ui_walk only; skips detective)
 if (-not $NoCheck) {
     Write-Host "`n[ Health check... ]" -ForegroundColor Yellow
     $output = & $python_exe scripts\research.py --quick 2>&1
+    $exitCode = $LASTEXITCODE
     $output | Select-Object -Last 20
+    if ($exitCode -ne 0) {
+        Write-Host "Health check failed (exit $exitCode)." -ForegroundColor Red
+        exit $exitCode
+    }
 }
 
 # Start bot

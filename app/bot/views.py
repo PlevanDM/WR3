@@ -32,6 +32,11 @@ PAGE = 6          # items per page in list widgets
 NOOP = "d:noop"
 
 
+def _inbox_can_act(user: User) -> bool:
+    """Manager/admin may confirm/reject/export; owner is read-only in inbox UI."""
+    return user.role in (Role.manager, Role.admin)
+
+
 def _short(s: str | None, n: int) -> str:
     if not s:
         return "—"
@@ -148,6 +153,7 @@ async def render_queue_order_view(
     dl = await order_deep_link(bot, order_id)
     is_admin = user.role == Role.admin
     can_take = user.role in (Role.engineer, Role.admin)
+    can_request = user.role in (Role.engineer, Role.manager, Role.admin)
 
     b = InlineKeyboardBuilder()
     b.button(text="🔗 RemOnline", url=ro_url)
@@ -161,8 +167,9 @@ async def render_queue_order_view(
         else:
             b.button(text="⛔ Занят", callback_data=NOOP)
         sizes.append(1)
-    b.button(text="📨 Запрос по заказу", callback_data=f"eng:reqmenu:{order_id}")
-    sizes.append(1)
+    if can_request:
+        b.button(text="📨 Запрос по заказу", callback_data=f"eng:reqmenu:{order_id}")
+        sizes.append(1)
     if is_admin:
         b.button(text="⬆️ Выше",    callback_data=f"adm:q:up:{order_id}")
         b.button(text="⬇️ Ниже",    callback_data=f"adm:q:dn:{order_id}")
@@ -538,8 +545,8 @@ async def render_inbox_view(
     for t, cb in nav:
         b.button(text=t, callback_data=cb)
     sizes.append(len(nav))
-    # export only for narrow type-filters (Asbis/IT4 flavor)
-    if flt in ("asbis", "it4") and total:
+    # export only for narrow type-filters (Asbis/IT4 flavor); not for read-only owner
+    if flt in ("asbis", "it4") and total and _inbox_can_act(user):
         b.button(text="📤 Выгрузить списком", callback_data=f"mgr:list:export:{flt}")
         sizes.append(1)
     b.button(text="🔄 Обновить", callback_data=f"di:f:{flt}:{page}")
@@ -567,6 +574,7 @@ async def render_inbox_request_view(
                 role_label = {
                     "engineer": "🛠 инженер", "manager": "📋 менеджер",
                     "reception": "🛎 приёмка", "admin": "🛡 админ",
+                    "owner": "👑 владелец",
                 }.get(u.role.value, u.role.value)
                 nm = u.full_name or (u.username and f"@{u.username}") or str(u.tg_id)
                 author = f"{nm} · {role_label}"
@@ -585,7 +593,8 @@ async def render_inbox_request_view(
 
     b = InlineKeyboardBuilder()
     is_terminal = r.status in (RequestStatus.done, RequestStatus.rejected)
-    if not is_terminal:
+    can_act = _inbox_can_act(user)
+    if not is_terminal and can_act:
         if r.type in (RequestType.asbis, RequestType.it4):
             b.button(text="✅ Подтвердить",       callback_data=f"mgr:req:done:{r.id}")
             b.button(text="🚫 Отклонить с комм.", callback_data=f"mgr:req:rejc:{r.id}")

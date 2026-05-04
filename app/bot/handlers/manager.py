@@ -100,6 +100,9 @@ async def list_actions(cb: CallbackQuery, user: User | None) -> None:
     parts = cb.data.split(":")
     # mgr:list:export:<type>
     if len(parts) == 4 and parts[2] == "export":
+        if not _allowed_to_write(user):
+            await cb.answer("🔒 Выгрузка доступна менеджеру или админу", show_alert=True)
+            return
         t = parts[3]
         if t not in ("asbis", "it4"):
             await cb.answer("?"); return
@@ -211,7 +214,7 @@ async def ask_reject_comment(cb: CallbackQuery, user: User | None, state: FSMCon
 
 @router.message(RejectFSM.waiting_comment)
 async def on_reject_comment(msg: Message, user: User | None, state: FSMContext, bot: Bot) -> None:
-    if not _allowed(user):
+    if not _allowed_to_write(user):
         await state.clear(); return
     note = (msg.text or "").strip()
     if not note:

@@ -42,6 +42,12 @@ ROLE_EXTRA: dict[Role, list[BotCommand]] = {
         BotCommand(command="order", description="🔎 Найти заказ"),
         BotCommand(command="stats", description="📊 Сводка"),
     ],
+    Role.owner: [
+        BotCommand(command="queue", description="📋 Очередь"),
+        BotCommand(command="inbox", description="📨 Входящие (только просмотр)"),
+        BotCommand(command="order", description="🔎 Найти заказ"),
+        BotCommand(command="stats", description="📊 Сводка"),
+    ],
     Role.admin: [
         BotCommand(command="queue", description="📋 Очередь"),
         BotCommand(command="inbox", description="📨 Входящие"),

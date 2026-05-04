@@ -291,6 +291,7 @@ class ResearchEngine:
 
 def main(args):
     configure_console_output()
+    quick = "--quick" in args
     engine = ResearchEngine()
 
     print("🔬 AUTO-RESEARCH (Production Health Check)")
@@ -300,10 +301,13 @@ def main(args):
     print("\n1️⃣ UI WALK")
     engine.run_probe("ui_walk", [sys.executable, "-m", "scripts.ui_walk"], timeout=120)
 
-    # Deep checks
-    det_ok, det_total = engine.run_detective_checks()
-    if det_ok < det_total:
-        engine.issues.append(("warning", "detective", f"Detective checks: {det_ok}/{det_total} OK"))
+    if not quick:
+        # Deep checks
+        det_ok, det_total = engine.run_detective_checks()
+        if det_ok < det_total:
+            engine.issues.append(("warning", "detective", f"Detective checks: {det_ok}/{det_total} OK"))
+    else:
+        print("\n2️⃣ DETECTIVE CHECKS — skipped (--quick)")
 
     # Analyze
     engine.analyze()

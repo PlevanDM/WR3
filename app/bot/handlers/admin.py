@@ -1061,7 +1061,7 @@ async def cmd_role(msg: Message, user: User | None) -> None:
     if not _is_admin(user, msg.from_user.id): return
     parts = (msg.text or "").split()
     if len(parts) != 3:
-        await msg.answer("Формат: <code>/role &lt;tg_id&gt; &lt;admin|reception|engineer|manager&gt;</code>\n"
+        await msg.answer("Формат: <code>/role &lt;tg_id&gt; &lt;admin|reception|engineer|manager|owner&gt;</code>\n"
                          "Удобнее — через 🛡 Админ → 👥 Пользователи."); return
     try: tg_id = int(parts[1]); role = Role(parts[2])
     except Exception:
