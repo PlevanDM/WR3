@@ -19,9 +19,10 @@ BTN_STALE        = "⏰ Застряли"
 BTN_STATS        = "📊 Статистика"
 BTN_ADMIN        = "🛡 Админ"
 BTN_FIND_ORDER   = "🔎 Заказ"
+BTN_BACK_ADMIN   = "🛡 Вернуть админку"
 
 
-def main_menu(role: Role) -> ReplyKeyboardMarkup:
+def main_menu(role: Role, *, show_admin_return: bool = False) -> ReplyKeyboardMarkup:
     """Per-role reply keyboard. Rows are fixed for predictability."""
     b = ReplyKeyboardBuilder()
     rows: list[int] = []
@@ -56,6 +57,9 @@ def main_menu(role: Role) -> ReplyKeyboardMarkup:
         b.add(KeyboardButton(text=BTN_FIND_ORDER), KeyboardButton(text=BTN_STATS))
         rows = [2, 2, 2]
 
+    if show_admin_return:
+        b.add(KeyboardButton(text=BTN_BACK_ADMIN))
+        rows.append(1)
     b.adjust(*rows)
     return b.as_markup(resize_keyboard=True, is_persistent=True)
 
@@ -264,7 +268,8 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     b.button(text="🌱 Собрать очередь",     callback_data="adm:act:seed")
     b.button(text="🔁 Перенумеровать",      callback_data="adm:act:reindex")
     b.button(text="🏷 Статусы RemOnline",   callback_data="adm:act:rostatuses")
-    sizes = [2, 2, 2, 2, 2, 2, 2]
+    b.button(text="🗑 Сброс локальных заказов", callback_data="adm:act:roreset")
+    sizes = [2, 2, 2, 2, 2, 2, 2, 1]
     b.adjust(*sizes)
     return b.as_markup()
 

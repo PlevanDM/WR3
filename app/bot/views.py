@@ -32,9 +32,18 @@ PAGE = 6          # items per page in list widgets
 NOOP = "d:noop"
 
 
+def _effective_role(user: User) -> Role:
+    """Prefer base admin/owner privileges even in temporary test-role mode."""
+    real = getattr(user, "real_role", None)
+    if real in (Role.admin, Role.owner):
+        return real
+    return user.role
+
+
 def _inbox_can_act(user: User) -> bool:
     """Manager/admin may confirm/reject/export; owner is read-only in inbox UI."""
-    return user.role in (Role.manager, Role.admin)
+    role = _effective_role(user)
+    return role in (Role.manager, Role.admin)
 
 
 def _short(s: str | None, n: int) -> str:
@@ -42,6 +51,46 @@ def _short(s: str | None, n: int) -> str:
         return "—"
     s = s.strip()
     return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _accepted_by_from_raw(raw: dict | None) -> str | None:
+    """Best-effort extractor for 'who accepted device' from RemOnline payload."""
+    if not isinstance(raw, dict):
+        return None
+    if isinstance(raw.get("_accepted_by_name"), str) and raw.get("_accepted_by_name").strip():
+        return raw.get("_accepted_by_name").strip()
+    for key in ("accepted_by", "receiver", "created_by_employee", "employee", "manager"):
+        v = raw.get(key)
+        if isinstance(v, dict):
+            name = v.get("name") or v.get("full_name") or v.get("title")
+            if name:
+                return str(name).strip()
+        elif isinstance(v, str) and v.strip():
+            return v.strip()
+    aid = raw.get("_accepted_by_id")
+    return None
+
+
+def _device_owner_from_raw(raw: dict | None, client_name: str | None) -> str | None:
+    if not isinstance(raw, dict):
+        return client_name.strip() if isinstance(client_name, str) and client_name.strip() else None
+    asset = raw.get("asset")
+    if isinstance(asset, dict):
+        owner = asset.get("owner")
+        if isinstance(owner, dict):
+            nm = owner.get("name") or owner.get("full_name") or owner.get("title")
+            if isinstance(nm, str) and nm.strip():
+                return nm.strip()
+        elif isinstance(owner, str) and owner.strip():
+            return owner.strip()
+    client = raw.get("client")
+    if isinstance(client, dict):
+        nm = client.get("name") or " ".join(
+            x for x in [client.get("first_name"), client.get("last_name")] if x
+        )
+        if isinstance(nm, str) and nm.strip():
+            return nm.strip()
+    return client_name.strip() if isinstance(client_name, str) and client_name.strip() else None
 
 
 def _age_days(dt: datetime | None) -> int:
@@ -78,18 +127,14 @@ async def render_queue_view(
         body = "\n\n<i>📭 Очередь пуста.</i>"
         return head + body, _simple_refresh_kb(page, has_prev=page > 0, has_next=False)
 
-    lines = []
     b = InlineKeyboardBuilder()
     for q, o in rows:
         marker = "🟢" if o.assigned_engineer_id is None else "🟦"
         mine = (user.id == o.assigned_engineer_id)
-        tag = " (моё)" if mine else ""
-        dev = _short(o.device, 38)
+        mine_tag = " (моё)" if mine else ""
+        dev = _short(o.device, 22)
         kb = kind_badge(o.is_paid)
-        lines.append(
-            f"{marker} <b>{q.position}.</b> {kb} <code>#{o.number}</code> · {dev}{tag}"
-        )
-        btn = f"{q.position}. #{o.number}"
+        btn = f"{marker} {q.position}. {kb} #{o.number} · {dev}{mine_tag}"
         b.button(text=btn, callback_data=f"dq:o:{o.id}:{page}")
     # nav row
     row_btns = []
@@ -102,7 +147,8 @@ async def render_queue_view(
         b.button(text=t, callback_data=cb)
     b.button(text="🔄 Обновить", callback_data=f"dq:p:{page}")
     b.adjust(*([1] * len(rows) + [len(row_btns), 1]))
-    text = head + "\n\n" + "\n".join(lines)
+    # Single visual style: orders are represented only by the button list.
+    text = head
     return text, b.as_markup()
 
 
@@ -142,7 +188,12 @@ async def render_queue_order_view(
     ]
     if o.device:      lines.append(f"📦 {o.device}")
     if o.serial:      lines.append(f"🔢 {o.serial}")
-    if o.client_name: lines.append(f"👤 {o.client_name}")
+    owner = _device_owner_from_raw(o.raw, o.client_name)
+    if owner:
+        lines.append(f"👤 <b>ВЛАДЕЛЕЦ:</b> <b>{owner}</b>")
+    accepted_by = _accepted_by_from_raw(o.raw)
+    if accepted_by:
+        lines.append(f"🛎 Принял: {accepted_by}")
     if holder_name:
         tag = " (ты)" if taken_by_me else ""
         lines.append(f"🛠 на: {holder_name}{tag}")
@@ -151,9 +202,10 @@ async def render_queue_order_view(
 
     ro_url = await resolve_ro_url(o)
     dl = await order_deep_link(bot, order_id)
-    is_admin = user.role == Role.admin
-    can_take = user.role in (Role.engineer, Role.admin)
-    can_request = user.role in (Role.engineer, Role.manager, Role.admin)
+    role = _effective_role(user)
+    is_admin = role in (Role.admin, Role.owner)
+    can_take = role in (Role.engineer, Role.admin, Role.owner)
+    can_request = role in (Role.engineer, Role.manager, Role.admin, Role.owner)
 
     b = InlineKeyboardBuilder()
     b.button(text="🔗 RemOnline", url=ro_url)
@@ -243,7 +295,12 @@ async def render_mine_order_view(
     ]
     if o.device:   lines.append(f"📦 {o.device}")
     if o.serial:   lines.append(f"🔢 {o.serial}")
-    if o.client_name: lines.append(f"👤 {o.client_name}")
+    owner = _device_owner_from_raw(o.raw, o.client_name)
+    if owner:
+        lines.append(f"👤 <b>ВЛАДЕЛЕЦ:</b> <b>{owner}</b>")
+    accepted_by = _accepted_by_from_raw(o.raw)
+    if accepted_by:
+        lines.append(f"🛎 Принял: {accepted_by}")
     if o.last_activity_at:
         lines.append(f"🕘 {o.last_activity_at:%d.%m %H:%M}")
 
@@ -255,7 +312,7 @@ async def render_mine_order_view(
     b.button(text="↩️ Вернуть в очередь", callback_data=f"dq:un:{order_id}:-1")
     b.button(text="📨 Запрос по заказу",  callback_data=f"eng:reqmenu:{order_id}")
     sizes = [2, 1, 1]
-    if user.role == Role.admin:
+    if _effective_role(user) in (Role.admin, Role.owner):
         b.button(text="🔄 Передать другому", callback_data=f"adm:as:{order_id}:0")
         sizes.append(1)
     b.button(text="⬅️ К моим",            callback_data=f"dm:p:{back_page}")
@@ -411,15 +468,19 @@ async def render_reception_nophoto_view(
     if not window:
         body = "\n\n<i>✅ У всех свежих заказов есть фото.</i>"
     else:
-        lines = []
         for o in window:
             dev = _short(o.device, 38)
             age_d = _age_days(o.last_activity_at)
             age = f" · {age_d}д" if age_d >= 1 else ""
-            lines.append(f"⚪ <code>#{o.number}</code> · {dev}{age}")
-            b.button(text=f"📷 #{o.number}", callback_data=f"rcp:photo:{o.id}")
+            owner = _device_owner_from_raw(o.raw, o.client_name)
+            owner_txt = _short(owner, 16) if owner else "—"
+            kind = "💰" if o.is_paid else "🛡"
+            b.button(
+                text=f"📷 {kind} #{o.number} · {dev}{age} · {owner_txt}",
+                callback_data=f"rcp:photo:{o.id}",
+            )
             sizes.append(1)
-        body = "\n\n" + "\n".join(lines)
+        body = ""
     nav = []
     if page > 0: nav.append(("◀️", f"dp:np:{page - 1}"))
     nav.append((f"{page + 1}/{pages}", NOOP))
@@ -454,14 +515,18 @@ async def render_reception_stale_view(
     if not window:
         body = "\n\n<i>✅ Все заказы двигаются.</i>"
     else:
-        lines = []
         for o in window:
             dev = _short(o.device, 38)
             age_d = _age_days(o.last_activity_at)
-            lines.append(f"🟠 <code>#{o.number}</code> · {dev} · <b>{age_d} д</b>")
-            b.button(text=f"📷 #{o.number}", callback_data=f"rcp:photo:{o.id}")
+            owner = _device_owner_from_raw(o.raw, o.client_name)
+            owner_txt = _short(owner, 16) if owner else "—"
+            kind = "💰" if o.is_paid else "🛡"
+            b.button(
+                text=f"🟠 {kind} #{o.number} · {dev} · {age_d}д · {owner_txt}",
+                callback_data=f"rcp:photo:{o.id}",
+            )
             sizes.append(1)
-        body = "\n\n" + "\n".join(lines)
+        body = ""
     nav = []
     if page > 0: nav.append(("◀️", f"dp:st:{page - 1}"))
     nav.append((f"{page + 1}/{pages}", NOOP))

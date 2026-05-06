@@ -37,7 +37,9 @@ class AdminFSM(StatesGroup):
 
 def _is_admin(user: User | None, tg_id: int | None) -> bool:
     real_role = getattr(user, "real_role", None)
-    if user and user.is_active and (user.role == Role.admin or real_role == Role.admin):
+    if user and user.is_active and (
+        user.role in (Role.admin, Role.owner) or real_role in (Role.admin, Role.owner)
+    ):
         return True
     return tg_id is not None and tg_id in settings.admin_ids
 
@@ -127,10 +129,13 @@ async def cb_asrole_set(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
     try: await cb.message.delete()
     except Exception: pass
 
+    real = getattr(user, "real_role", None)
+    can_return = bool(real and real != role and real in (Role.admin, Role.owner))
     await cb.message.answer(
         f"🧪 Роль переключена на <b>{ROLE_LABELS[role.value]}</b>.\n"
-        "Меню кнопок и команд обновлено.",
-        reply_markup=main_menu(role)
+        "Меню кнопок и команд обновлено.\n"
+        "Чтобы вернуться, нажми «🛡 Вернуть админку» или отправь /admin.",
+        reply_markup=main_menu(role, show_admin_return=can_return)
     )
 
 
@@ -624,9 +629,11 @@ async def admin_diag(cb: CallbackQuery, user: User | None) -> None:
         pending = len(await repo.pending_events(s, limit=200))
         gallery = await repo.get_setting(s, "gallery_chat_id")
     gallery_line = (gallery or {}).get("id") or settings.gallery_chat_id or "не подключена"
+    db_line = settings.sqlite_path_for_logging or "(postgres / см. DB_URL)"
     text = (
         "🩺 <b>Диагностика</b>\n\n"
         f"RemOnline: {status}\n<i>{detail}</i>\n\n"
+        f"База: <code>{db_line}</code>\n"
         f"Галерея: <code>{gallery_line}</code>\n"
         f"В очереди: <b>{queue_n}</b>\n"
         f"Пользователей: <b>{users_n}</b>\n"
@@ -892,6 +899,43 @@ async def act_rostatuses(cb: CallbackQuery, user: User | None) -> None:
     try: await cb.message.edit_text("\n".join(lines), reply_markup=back_kb())
     except Exception: pass
     await cb.answer()
+
+
+@router.callback_query(F.data == "adm:act:roreset")
+async def act_roreset(cb: CallbackQuery, user: User | None, bot: Bot) -> None:
+    """Wipe local mirror and refill from current RemOnline account.
+
+    Keeps users/settings intact. This is the quickest way to drop stale queue data
+    when API key/account changed.
+    """
+    if not _is_admin(user, cb.from_user.id):
+        await cb.answer("🔒"); return
+    try:
+        await cb.message.edit_text("⏳ Сбрасываю локальные заказы и тяну заново из RemOnline…")
+    except Exception:
+        pass
+    from app.remonline.poller import poll_once
+    async with session_scope() as s:
+        removed = await repo.wipe_local_ro_mirror(s)
+        # Use the last month as the effective working window right away.
+        await repo.set_setting(s, "fresh_window_days", {"value": 30})
+    pulled = await poll_once()
+    try:
+        await cb.message.edit_text(
+            "✅ <b>Локальная база заказов обновлена</b>\n"
+            f"Удалено старых записей: <b>{removed}</b>\n"
+            f"Подтянуто из RemOnline: <b>{pulled}</b>\n"
+            "Окно отображения установлено: <b>30 дней</b>.",
+            reply_markup=back_kb(),
+        )
+    except Exception:
+        pass
+    try:
+        from app.bot.services.widgets import refresh_dashboard
+        await refresh_dashboard(bot)
+    except Exception:
+        pass
+    await cb.answer("Готово")
 
 
 @router.callback_query(F.data == "adm:act:broadcast")

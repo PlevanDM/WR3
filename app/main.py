@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -17,6 +18,7 @@ from app.bot.services.sla import send_digest
 from app.bot.services.widgets import refresh_dashboard
 from app.db.session import engine
 from app.remonline.poller import poll_once
+from app.runtime_lock import RuntimeLock
 
 
 async def _run_poll(bot: Bot) -> None:
@@ -35,8 +37,21 @@ async def _run_dashboard(bot: Bot) -> None:
 
 
 async def main() -> None:
+    lock = RuntimeLock(Path(".bot.runtime.lock"))
+    if not lock.acquire():
+        setup_logging()
+        log.warning("already_running", lock_file=str(Path(".bot.runtime.lock").resolve()))
+        return
     setup_logging()
-    log.info("starting", admins=settings.admin_ids)
+    _rok = (settings.remonline_api_key or "").strip()
+    log.info(
+        "starting",
+        admins=settings.admin_ids,
+        remonline_base=settings.remonline_base_url,
+        remonline_key_configured=bool(_rok),
+        remonline_key_len=len(_rok),
+        sqlite_db=settings.sqlite_path_for_logging,
+    )
 
     if settings.use_redis:
         from aiogram.fsm.storage.redis import RedisStorage
@@ -82,6 +97,7 @@ async def main() -> None:
         await engine.dispose()
         if redis is not None:
             await redis.close()
+        lock.release()
 
 
 if __name__ == "__main__":

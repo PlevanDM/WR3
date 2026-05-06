@@ -71,13 +71,74 @@ async def set_paid_marker(*, kind_ids: list[int] | None = None,
         await repo.set_setting(s, "paid_marker", cur)
 
 
+async def ro_employee_aliases() -> dict[int, str]:
+    """Manual fallback aliases for RemOnline employee IDs."""
+    async with session_scope() as s:
+        v = await repo.get_setting(s, "ro_employee_aliases")
+    raw = (v or {}).get("items") or {}
+    out: dict[int, str] = {}
+    if not isinstance(raw, dict):
+        return out
+    for k, name in raw.items():
+        try:
+            eid = int(k)
+        except Exception:
+            continue
+        nm = str(name or "").strip()
+        if nm:
+            out[eid] = nm
+    return out
+
+
+async def set_ro_employee_aliases(items: dict[int, str]) -> None:
+    clean: dict[str, str] = {}
+    for k, v in (items or {}).items():
+        try:
+            eid = int(k)
+        except Exception:
+            continue
+        nm = str(v or "").strip()
+        if nm:
+            clean[str(eid)] = nm
+    async with session_scope() as s:
+        await repo.set_setting(s, "ro_employee_aliases", {"items": clean})
+
+
 def is_paid_by_marker(raw: dict | None, status_name: str | None, marker: dict) -> bool:
-    """Pure function: decide if RO order is paid based on marker config."""
+    """Decide paid-vs-warranty using real RemOnline intake data first.
+
+    Priority:
+    1) order_type from RemOnline (`Платный` / `Гарантия ...`) — source of truth.
+    2) status name heuristic (`плат*` / `гарант*`) for intake-status workflows.
+    3) explicit marker config (kind ids / status substrings) as fallback.
+    """
     if not marker:
-        return False
+        marker = {"kind_ids": [], "name_substrings": []}
     if not raw and not status_name:
         return False
     raw = raw or {}
+    # 1) RemOnline order type is the most reliable signal.
+    ot = raw.get("order_type")
+    ot_name = ""
+    if isinstance(ot, dict):
+        ot_name = str(ot.get("name") or "").strip().lower()
+    elif isinstance(ot, str):
+        ot_name = ot.strip().lower()
+    if ot_name:
+        if "плат" in ot_name:
+            return True
+        if "гаран" in ot_name:
+            return False
+
+    # 2) Intake/repair statuses can also encode paid-vs-warranty.
+    st = (status_name or "").strip().lower()
+    if st:
+        if "плат" in st:
+            return True
+        if "гаран" in st:
+            return False
+
+    # 3) Custom marker fallback.
     kind_ids = set(int(x) for x in (marker.get("kind_ids") or []))
     if kind_ids:
         # RemOnline carries the kind in `kind_of_good_id` and/or nested objects.

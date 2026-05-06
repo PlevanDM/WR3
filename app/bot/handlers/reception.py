@@ -12,6 +12,10 @@ from app.db import repo
 from app.db.models import Role, User, PhotoKind
 from app.bot.services.gallery import post_media, gallery_photo_link, resolve_gallery_chat_id
 from app.bot.services.sync_ro import push_photos_comment
+from app.bot.services.widgets import (
+    render_stats_drilldown, render_stats_main,
+    set_stats_freeze, clear_stats_freeze,
+)
 from app.bot import views
 
 router = Router(name="reception")
@@ -73,6 +77,31 @@ async def cb_stale_page(cb: CallbackQuery, user: User | None) -> None:
     text, kb = await views.render_reception_stale_view(user, page=page)
     try: await cb.message.edit_text(text, reply_markup=kb)
     except Exception: pass
+    await cb.answer()
+
+
+@router.callback_query(F.data.startswith("gw:"))
+async def cb_gallery_widget_stats(cb: CallbackQuery, user: User | None) -> None:
+    if not user or not user.is_active:
+        await cb.answer("🔒", show_alert=True); return
+    parts = cb.data.split(":")
+    if len(parts) < 3:
+        await cb.answer(); return
+    kind = parts[1]
+    if kind == "stats" and parts[2] == "back":
+        await clear_stats_freeze()
+        text, kb = await render_stats_main()
+    else:
+        await set_stats_freeze(15 * 60)
+        try:
+            page = int(parts[2])
+        except Exception:
+            page = 0
+        text, kb = await render_stats_drilldown(kind, page=page)
+    try:
+        await cb.message.edit_text(text, reply_markup=kb, disable_web_page_preview=True)
+    except Exception:
+        pass
     await cb.answer()
 
 

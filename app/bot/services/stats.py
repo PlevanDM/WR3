@@ -32,10 +32,25 @@ async def render_stats(user: User | None) -> str:
         f"\n• всего в работе: <b>{so['total']}</b>"
         f"\n• без фото: <b>{so['no_photos']}</b>"
         f"\n• без движения &gt; {sdays} дн.: <b>{so['stale']}</b>"
+        f"\n• без движения &gt; 30 дн.: <b>{so.get('stale_30', 0)}</b>"
+        f"\n• без движения &gt; 6 мес.: <b>{so.get('stale_180', 0)}</b>"
         f"\n• принято сегодня: <b>{so['today']}</b>"
         f" · за неделю: <b>{so['week']}</b>"
+        f"\n• движение сегодня: <b>{so.get('activity_today', 0)}</b>"
+        f" · за неделю: <b>{so.get('activity_week', 0)}</b>"
         f"\n• в очереди на ремонт: <b>{qcount}</b>"
+        f"\n• на инженерах: <b>{so.get('assigned', 0)}</b>"
+        f" · не назначено: <b>{so.get('unassigned', 0)}</b>"
+        f"\n• гарантийные: <b>{so.get('warranty', 0)}</b>"
+        f" · платные: <b>{so.get('paid', 0)}</b>"
     )
+    status_top = so.get("status_top") or []
+    statuses_block = "\n\n<b>Статусы (топ)</b>"
+    if status_top:
+        for row in status_top:
+            statuses_block += f"\n• {row['status']}: <b>{row['count']}</b>"
+    else:
+        statuses_block += "\n• —"
 
     req = (
         "\n\n<b>Запросы менеджеру</b>"
@@ -62,4 +77,4 @@ async def render_stats(user: User | None) -> str:
 
     footer = f"\n\n<i>окно: последние {fdays} дн.</i>"
 
-    return head + orders + req + mine_block + footer
+    return head + orders + statuses_block + req + mine_block + footer

@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Sequence
 
-from sqlalchemy import select, update, func, or_
+from sqlalchemy import select, update, func, or_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
@@ -151,6 +151,25 @@ async def reindex_queue(s: AsyncSession) -> int:
         if it.position != i:
             it.position = i
     return len(items)
+
+
+async def wipe_local_ro_mirror(s: AsyncSession) -> int:
+    """Remove all orders and related rows (queue, photos, requests). Users & settings stay.
+
+    Also drops ``bootstrap_done`` so the next poll acts like first sync (no spam of
+    ``order_created`` events — see poller). After running this, call ``poll_once()``
+    to refill from the current RemOnline API key.
+    """
+    n = int((await s.execute(select(func.count(Order.id)))).scalar_one() or 0)
+    await s.execute(delete(Setting).where(Setting.key == "bootstrap_done"))
+    # Break FK refs from events → orders (SQLite may not honor ON DELETE everywhere).
+    await s.execute(update(Event).where(Event.order_id.is_not(None)).values(order_id=None))
+    # Child tables first (SQLite without enforced CASCADE).
+    await s.execute(delete(QueueItem))
+    await s.execute(delete(OrderPhoto))
+    await s.execute(delete(Request))
+    await s.execute(delete(Order))
+    return n
 
 
 async def seed_queue_from_orders(s: AsyncSession, exclude_status_ids: Sequence[int] | None = None,
@@ -528,12 +547,21 @@ async def stats_orders(s: AsyncSession, *, fresh_days: int | None,
     fcond = _fresh_cond(cutoff)
     if fcond is not None:
         base = base.where(fcond)
-    total = int((await s.execute(select(func.count()).select_from(base.subquery()))).scalar_one())
+    base_sub = base.subquery()
+    total = int((await s.execute(select(func.count()).select_from(base_sub))).scalar_one())
     no_photos = int((await s.execute(
         select(func.count()).select_from(base.where(Order.has_photos == False).subquery())  # noqa: E712
     )).scalar_one())
     stale = int((await s.execute(
         select(func.count()).select_from(base.where(Order.last_activity_at < stale_cutoff).subquery())
+    )).scalar_one())
+    stale_30_cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    stale_30 = int((await s.execute(
+        select(func.count()).select_from(base.where(Order.last_activity_at < stale_30_cutoff).subquery())
+    )).scalar_one())
+    stale_180_cutoff = datetime.now(timezone.utc) - timedelta(days=180)
+    stale_180 = int((await s.execute(
+        select(func.count()).select_from(base.where(Order.last_activity_at < stale_180_cutoff).subquery())
     )).scalar_one())
     # today + week (by created_at_ro)
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -544,8 +572,41 @@ async def stats_orders(s: AsyncSession, *, fresh_days: int | None,
     week_n = int((await s.execute(
         select(func.count()).select_from(base.where(Order.created_at_ro >= week).subquery())
     )).scalar_one())
+    activity_today_n = int((await s.execute(
+        select(func.count()).select_from(base.where(Order.last_activity_at >= today).subquery())
+    )).scalar_one())
+    activity_week_n = int((await s.execute(
+        select(func.count()).select_from(base.where(Order.last_activity_at >= week).subquery())
+    )).scalar_one())
+    paid_n = int((await s.execute(
+        select(func.count()).select_from(base.where(Order.is_paid.is_(True)).subquery())
+    )).scalar_one())
+    warranty_n = int((await s.execute(
+        select(func.count()).select_from(base.where(Order.is_paid.is_(False)).subquery())
+    )).scalar_one())
+    assigned_n = int((await s.execute(
+        select(func.count()).select_from(base.where(Order.assigned_engineer_id.is_not(None)).subquery())
+    )).scalar_one())
+    unassigned_n = int((await s.execute(
+        select(func.count()).select_from(base.where(Order.assigned_engineer_id.is_(None)).subquery())
+    )).scalar_one())
+    status_rows = (await s.execute(
+        select(base_sub.c.status_name, func.count())
+        .group_by(base_sub.c.status_name)
+        .order_by(func.count().desc())
+        .limit(8)
+    )).all()
+    status_top = [
+        {"status": (name or "—"), "count": int(cnt or 0)}
+        for name, cnt in status_rows
+    ]
     return {"total": total, "no_photos": no_photos, "stale": stale,
-            "today": today_n, "week": week_n}
+            "stale_30": stale_30, "stale_180": stale_180,
+            "today": today_n, "week": week_n,
+            "activity_today": activity_today_n, "activity_week": activity_week_n,
+            "paid": paid_n, "warranty": warranty_n,
+            "assigned": assigned_n, "unassigned": unassigned_n,
+            "status_top": status_top}
 
 
 async def stats_requests(s: AsyncSession, *, fresh_days: int | None) -> dict:

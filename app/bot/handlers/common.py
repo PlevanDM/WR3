@@ -12,7 +12,7 @@ from app.db.models import Role, User
 from app.bot.texts import (
     HELLO, NO_ACCESS, ACCESS_REQUESTED, ROLE_LABELS, ROLE_ICONS, ROLE_TIPS, CANCELLED,
 )
-from app.bot.keyboards import main_menu, role_pick_kb, order_card_kb
+from app.bot.keyboards import main_menu, role_pick_kb, order_card_kb, BTN_BACK_ADMIN
 from app.bot.commands import apply_commands_for_user
 from app.bot.services.deep_link import order_deep_link
 from app.bot.services.ro_url import resolve_ro_url
@@ -30,10 +30,13 @@ def _caps_for(user: User | None) -> dict:
     """Capabilities bundle for order card based on role."""
     if not user:
         return {}
-    is_admin  = user.role == Role.admin
-    is_rec    = user.role == Role.reception
-    is_eng    = user.role == Role.engineer
-    is_mgr    = user.role == Role.manager
+    role = getattr(user, "real_role", None)
+    if role not in (Role.admin, Role.owner):
+        role = user.role
+    is_admin  = role in (Role.admin, Role.owner)
+    is_rec    = role == Role.reception
+    is_eng    = role == Role.engineer
+    is_mgr    = role == Role.manager
     return {
         "is_admin": is_admin,
         "for_reception": is_rec or is_admin,
@@ -44,15 +47,52 @@ def _caps_for(user: User | None) -> dict:
 
 async def _fmt_order_card(o) -> str:
     from app.bot.texts import status_emoji
+    def owner_name(raw: dict | None, fallback: str | None) -> str | None:
+        if isinstance(raw, dict):
+            asset = raw.get("asset")
+            if isinstance(asset, dict):
+                owner = asset.get("owner")
+                if isinstance(owner, dict):
+                    nm = owner.get("name") or owner.get("full_name") or owner.get("title")
+                    if isinstance(nm, str) and nm.strip():
+                        return nm.strip()
+                elif isinstance(owner, str) and owner.strip():
+                    return owner.strip()
+            client = raw.get("client")
+            if isinstance(client, dict):
+                nm = client.get("name") or " ".join(
+                    x for x in [client.get("first_name"), client.get("last_name")] if x
+                )
+                if isinstance(nm, str) and nm.strip():
+                    return nm.strip()
+        return fallback.strip() if isinstance(fallback, str) and fallback.strip() else None
+    def accepted_by(raw: dict | None) -> str | None:
+        if not isinstance(raw, dict):
+            return None
+        if isinstance(raw.get("_accepted_by_name"), str) and raw.get("_accepted_by_name").strip():
+            return raw.get("_accepted_by_name").strip()
+        for key in ("accepted_by", "receiver", "created_by_employee", "employee", "manager"):
+            v = raw.get(key)
+            if isinstance(v, dict):
+                nm = v.get("name") or v.get("full_name") or v.get("title")
+                if nm:
+                    return str(nm).strip()
+            elif isinstance(v, str) and v.strip():
+                return v.strip()
+        aid = raw.get("_accepted_by_id")
+        return None
     async with session_scope() as s:
         n = await repo.photos_count(s, o.id)
     head = f"📦 <b>#{o.number}</b> · фото: <b>{n}</b>"
     if o.status_name:
         head += f"  ·  {status_emoji(o.status_name)} {o.status_name}"
     lines = [head]
-    if o.device:      lines.append(o.device)
+    if o.device:      lines.append(f"📦 {o.device}")
     if o.serial:      lines.append(f"🔢 {o.serial}")
-    if o.client_name: lines.append(f"👤 {o.client_name}")
+    own = owner_name(getattr(o, "raw", None), getattr(o, "client_name", None))
+    if own:           lines.append(f"👤 <b>ВЛАДЕЛЕЦ:</b> <b>{own}</b>")
+    acc = accepted_by(getattr(o, "raw", None))
+    if acc:           lines.append(f"🛎 Принял: {acc}")
     if o.last_activity_at:
         lines.append(f"🕘 {o.last_activity_at:%d.%m %H:%M}")
     return "\n".join(lines)
@@ -179,11 +219,38 @@ async def on_start(msg: Message, user: User | None, bot: Bot) -> None:
     icon  = ROLE_ICONS.get(user.role.value, "")
     label = ROLE_LABELS[user.role.value]
     tips  = ROLE_TIPS.get(user.role.value, "")
+    real = getattr(user, "real_role", None)
+    show_admin_return = bool(
+        real and real != user.role and real in (Role.admin, Role.owner)
+    )
     await msg.answer(
         f"{HELLO}\n\n"
         f"Твоя роль: <b>{icon} {label}</b>\n\n"
         f"{tips}",
-        reply_markup=main_menu(user.role),
+        reply_markup=main_menu(user.role, show_admin_return=show_admin_return),
+    )
+
+
+@router.message(Command("exitrole"))
+@router.message(StateFilter(None), F.text == BTN_BACK_ADMIN)
+async def exit_role_mode(msg: Message, user: User | None, bot: Bot) -> None:
+    """Emergency way back to admin/owner after role-test switch."""
+    if not user:
+        return
+    real = getattr(user, "real_role", None)
+    if not real or real == user.role:
+        await msg.answer("Режим теста сейчас не активен.")
+        return
+    if real not in (Role.admin, Role.owner):
+        await msg.answer("Только админ/владелец может сбрасывать тестовую роль.")
+        return
+    async with session_scope() as s:
+        await repo.set_role_override(s, msg.from_user.id, None)
+    await apply_commands_for_user(bot, msg.from_user.id, real)
+    icon = ROLE_ICONS.get(real.value, "")
+    await msg.answer(
+        f"✅ Вернул роль: <b>{icon} {ROLE_LABELS[real.value]}</b>",
+        reply_markup=main_menu(real),
     )
 
 
